@@ -2,6 +2,8 @@
 
 Dashboard em Streamlit para visualizar os dados administrativos de inscrições da Olimpíada de Inteligência Artificial Aplicada.
 
+O acesso ao painel é bloqueado até que o usuário faça login com credenciais administrativas válidas na API.
+
 ## Funcionalidades
 
 - KPIs de equipes, inscrições enviadas, rascunhos e participantes.
@@ -66,17 +68,16 @@ Bash/Git Bash:
 bash run.sh
 ```
 
-## Atualizar dados pela API
+## Login obrigatório e atualização pela API
 
-No menu lateral do painel, use a seção **Atualizar pela API**.
-
-O fluxo implementado é:
+Ao abrir o app, o painel solicita login antes de exibir qualquer dado. O fluxo implementado é:
 
 1. `POST /api/auth/login` com `email` e `senha`.
 2. Extração do token retornado pelo login.
-3. `GET /api/admin/inscricoes` com paginação.
-4. `GET /api/admin/inscricoes/{id}` para detalhar cada inscrição.
-5. Gravação do resultado em `dados/inscricoes-detalhadas.json`.
+3. Liberação da visualização do painel somente após autenticação bem-sucedida.
+4. No menu lateral, a seção **Atualizar pela API** usa a sessão autenticada para chamar `GET /api/admin/inscricoes` com paginação.
+5. `GET /api/admin/inscricoes/{id}` para detalhar cada inscrição.
+6. Gravação do resultado em `dados/inscricoes-detalhadas.json`.
 
 Para evitar digitar credenciais toda vez, você pode usar variáveis de ambiente:
 

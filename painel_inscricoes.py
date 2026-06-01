@@ -107,7 +107,20 @@ def tem_proxima_pagina(resultado_lista, pagina_atual, tamanho, itens):
     return len(itens) == tamanho
 
 
+def criar_session_autenticada(base_url: str, token: str):
+    session = requests.Session()
+    session.headers.update(
+        {
+            "accept": "application/json, text/plain, */*",
+            "accept-language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            "authorization": f"Bearer {token.replace('Bearer ', '')}",
+        }
+    )
+    return session
+
+
 def autenticar_admin(base_url: str, email: str, senha: str):
+    base_url = base_url.rstrip("/")
     session = requests.Session()
     session.headers.update(
         {
@@ -128,12 +141,11 @@ def autenticar_admin(base_url: str, email: str, senha: str):
     if not token:
         raise RuntimeError("Login realizado, mas não encontrei o token na resposta da API.")
 
-    session.headers.update({"authorization": f"Bearer {token}"})
-    return session
+    session = criar_session_autenticada(base_url, token)
+    return session, token
 
 
-def baixar_inscricoes_api(base_url: str, email: str, senha: str, tamanho: int = 100, max_paginas: int = 100):
-    session = autenticar_admin(base_url.rstrip("/"), email, senha)
+def baixar_inscricoes_session(session: requests.Session, base_url: str, tamanho: int = 100, max_paginas: int = 100):
     base_url = base_url.rstrip("/")
     paginas = []
     resumo = []
@@ -176,6 +188,11 @@ def baixar_inscricoes_api(base_url: str, email: str, senha: str, tamanho: int = 
         "detalhes": detalhes,
         "paginasOriginais": paginas,
     }
+
+
+def baixar_inscricoes_api(base_url: str, email: str, senha: str, tamanho: int = 100, max_paginas: int = 100):
+    session, _token = autenticar_admin(base_url, email, senha)
+    return baixar_inscricoes_session(session, base_url, tamanho, max_paginas)
 
 
 def salvar_json(caminho: Path, data: dict):
@@ -361,6 +378,53 @@ def grafico_contagem(df, coluna, titulo, orientacao="v", top=None):
     st.plotly_chart(fig, use_container_width=True)
 
 
+def exigir_login_admin():
+    if st.session_state.get("autenticado") and st.session_state.get("api_token"):
+        return True
+
+    st.subheader("Login obrigatório")
+    st.info("Informe as credenciais administrativas para acessar o painel e os dados locais.")
+
+    with st.form("form_login_obrigatorio"):
+        base_url = st.text_input("Base URL", valor_secreto("OIAA_BASE_URL", BASE_URL_PADRAO))
+        email = st.text_input("E-mail", valor_secreto("OIAA_EMAIL"))
+        senha = st.text_input("Senha", valor_secreto("OIAA_SENHA"), type="password")
+        entrar = st.form_submit_button("Entrar")
+
+    if entrar:
+        if not email or not senha:
+            st.error("Informe e-mail e senha.")
+            return False
+
+        try:
+            with st.spinner("Autenticando..."):
+                _session, token = autenticar_admin(base_url, email, senha)
+            st.session_state["autenticado"] = True
+            st.session_state["api_token"] = token
+            st.session_state["api_base_url"] = base_url.rstrip("/")
+            st.session_state["api_email"] = email
+            st.success("Login realizado com sucesso.")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Falha no login: {exc}")
+
+    with st.expander("Configurar credenciais sem digitar sempre"):
+        st.write(
+            "Você pode usar variáveis de ambiente ou `.streamlit/secrets.toml` "
+            "com `OIAA_EMAIL`, `OIAA_SENHA` e `OIAA_BASE_URL`."
+        )
+
+    return False
+
+
+def obter_session_logada():
+    token = st.session_state.get("api_token")
+    base_url = st.session_state.get("api_base_url", BASE_URL_PADRAO)
+    if not token:
+        return None
+    return criar_session_autenticada(base_url, token)
+
+
 def aplicar_filtros(df_equipes, df_participantes):
     st.sidebar.header("Filtros")
 
@@ -411,7 +475,18 @@ def main():
     st.title("📊 Painel de Inscrições OIAA")
     st.caption("Dashboard local gerado a partir de `dados/inscricoes-detalhadas.json`.")
 
+    if not exigir_login_admin():
+        st.stop()
+
     with st.sidebar:
+        st.header("Sessão")
+        st.caption(f"Logado como: {st.session_state.get('api_email', 'usuário autenticado')}")
+        if st.button("Sair"):
+            for chave in ["autenticado", "api_token", "api_base_url", "api_email"]:
+                st.session_state.pop(chave, None)
+            st.rerun()
+
+        st.divider()
         st.header("Fonte")
         caminho = st.text_input("Arquivo JSON", str(DATA_PADRAO))
         if st.button("Recarregar dados"):
@@ -419,28 +494,28 @@ def main():
 
         st.divider()
         st.header("Atualizar pela API")
-        st.caption("Faz login no endpoint `/api/auth/login`, baixa a lista e busca o detalhe de cada inscrição.")
+        st.caption("Usa a sessão já autenticada para baixar a lista e buscar o detalhe de cada inscrição.")
         with st.form("form_atualizar_api"):
-            base_url = st.text_input("Base URL", valor_secreto("OIAA_BASE_URL", BASE_URL_PADRAO))
-            email = st.text_input("E-mail", valor_secreto("OIAA_EMAIL"))
-            senha = st.text_input("Senha", valor_secreto("OIAA_SENHA"), type="password")
             tamanho = st.number_input("Tamanho da página", min_value=1, max_value=500, value=100, step=10)
             max_paginas = st.number_input("Máx. páginas", min_value=1, max_value=500, value=100, step=10)
-            atualizar_api = st.form_submit_button("Login e atualizar JSON")
+            atualizar_api = st.form_submit_button("Atualizar JSON")
 
         if atualizar_api:
-            if not email or not senha:
-                st.error("Informe e-mail e senha para atualizar pela API.")
-            else:
-                try:
-                    with st.spinner("Autenticando e baixando inscrições..."):
-                        dados_api = baixar_inscricoes_api(base_url, email, senha, int(tamanho), int(max_paginas))
-                        salvar_json(Path(caminho), dados_api)
-                        carregar_json.clear()
-                    st.success(f"Dados atualizados: {dados_api['totalDetalhes']} inscrições detalhadas.")
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"Falha ao atualizar pela API: {exc}")
+            try:
+                with st.spinner("Baixando inscrições..."):
+                    session = obter_session_logada()
+                    dados_api = baixar_inscricoes_session(
+                        session,
+                        st.session_state.get("api_base_url", BASE_URL_PADRAO),
+                        int(tamanho),
+                        int(max_paginas),
+                    )
+                    salvar_json(Path(caminho), dados_api)
+                    carregar_json.clear()
+                st.success(f"Dados atualizados: {dados_api['totalDetalhes']} inscrições detalhadas.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Falha ao atualizar pela API: {exc}")
 
     caminho_path = Path(caminho)
     if not caminho_path.exists():
