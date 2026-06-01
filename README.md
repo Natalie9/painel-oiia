@@ -51,6 +51,20 @@ Alternativa usando `uv`:
 uv run --with streamlit --with pandas --with plotly streamlit run painel_inscricoes.py
 ```
 
+Também há atalhos locais:
+
+PowerShell:
+
+```powershell
+./run.ps1
+```
+
+Bash/Git Bash:
+
+```bash
+bash run.sh
+```
+
 ## Fonte dos dados
 
 O painel espera um JSON no formato gerado pelo script de coleta das inscrições, com as chaves principais:
