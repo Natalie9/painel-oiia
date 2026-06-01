@@ -11,6 +11,7 @@ Dashboard em Streamlit para visualizar os dados administrativos de inscrições 
 - Acompanhamento de documentos enviados e pendentes.
 - Filtros por status, UF, período e busca textual.
 - Tabelas com exportação em CSV.
+- Atualização direta pela API: login, paginação da lista e busca dos detalhes.
 
 ## Estrutura
 
@@ -48,7 +49,7 @@ streamlit run painel_inscricoes.py
 Alternativa usando `uv`:
 
 ```bash
-uv run --with streamlit --with pandas --with plotly streamlit run painel_inscricoes.py
+uv run --with streamlit --with pandas --with plotly --with requests streamlit run painel_inscricoes.py
 ```
 
 Também há atalhos locais:
@@ -65,9 +66,39 @@ Bash/Git Bash:
 bash run.sh
 ```
 
+## Atualizar dados pela API
+
+No menu lateral do painel, use a seção **Atualizar pela API**.
+
+O fluxo implementado é:
+
+1. `POST /api/auth/login` com `email` e `senha`.
+2. Extração do token retornado pelo login.
+3. `GET /api/admin/inscricoes` com paginação.
+4. `GET /api/admin/inscricoes/{id}` para detalhar cada inscrição.
+5. Gravação do resultado em `dados/inscricoes-detalhadas.json`.
+
+Para evitar digitar credenciais toda vez, você pode usar variáveis de ambiente:
+
+```bash
+OIAA_EMAIL="seu-email"
+OIAA_SENHA="sua-senha"
+OIAA_BASE_URL="https://olimpiadadeia.ceia.digital"
+```
+
+Ou configurar os mesmos nomes em `.streamlit/secrets.toml`:
+
+```toml
+OIAA_EMAIL = "seu-email"
+OIAA_SENHA = "sua-senha"
+OIAA_BASE_URL = "https://olimpiadadeia.ceia.digital"
+```
+
+Não faça commit de `.streamlit/secrets.toml`.
+
 ## Fonte dos dados
 
-O painel espera um JSON no formato gerado pelo script de coleta das inscrições, com as chaves principais:
+O painel espera um JSON no formato gerado pelo fluxo da API ou pelo script de coleta das inscrições, com as chaves principais:
 
 - `geradoEm`
 - `resumo`

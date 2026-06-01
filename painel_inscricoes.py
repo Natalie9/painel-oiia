@@ -1,13 +1,16 @@
 import json
-from datetime import date
+import os
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+import requests
 import plotly.express as px
 import streamlit as st
 
 
 DATA_PADRAO = Path("dados/inscricoes-detalhadas.json")
+BASE_URL_PADRAO = "https://olimpiadadeia.ceia.digital"
 
 
 st.set_page_config(
@@ -21,6 +24,172 @@ st.set_page_config(
 def carregar_json(caminho: str) -> dict:
     with open(caminho, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def request_json(session: requests.Session, method: str, url: str, **kwargs):
+    resposta = session.request(method, url, timeout=30, **kwargs)
+    try:
+        payload = resposta.json()
+    except ValueError:
+        payload = resposta.text
+
+    if not resposta.ok:
+        detalhe = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+        raise RuntimeError(f"HTTP {resposta.status_code} em {url}: {detalhe}")
+
+    return payload
+
+
+def encontrar_token(payload):
+    if isinstance(payload, str):
+        if payload.count(".") == 2 and len(payload) > 40:
+            return payload
+        return None
+
+    if isinstance(payload, dict):
+        for chave in ["token", "accessToken", "access_token", "jwt", "idToken", "id_token"]:
+            valor = payload.get(chave)
+            if isinstance(valor, str) and valor:
+                return valor.replace("Bearer ", "")
+
+        for valor in payload.values():
+            token = encontrar_token(valor)
+            if token:
+                return token
+
+    if isinstance(payload, list):
+        for item in payload:
+            token = encontrar_token(item)
+            if token:
+                return token
+
+    return None
+
+
+def extrair_itens_lista(resultado_lista):
+    if isinstance(resultado_lista, list):
+        return resultado_lista
+
+    if not isinstance(resultado_lista, dict):
+        return []
+
+    for chave in ["content", "conteudo", "items", "itens", "data", "dados", "results", "resultado"]:
+        valor = resultado_lista.get(chave)
+        if isinstance(valor, list):
+            return valor
+
+    return []
+
+
+def extrair_id_inscricao(item):
+    if not isinstance(item, dict):
+        return None
+    return item.get("id") or item.get("inscricaoId") or item.get("inscricao_id") or item.get("codigo")
+
+
+def tem_proxima_pagina(resultado_lista, pagina_atual, tamanho, itens):
+    if not isinstance(resultado_lista, dict):
+        return len(itens) == tamanho
+
+    if isinstance(resultado_lista.get("last"), bool):
+        return not resultado_lista["last"]
+    if isinstance(resultado_lista.get("ultima"), bool):
+        return not resultado_lista["ultima"]
+    if isinstance(resultado_lista.get("totalPages"), int):
+        return pagina_atual + 1 < resultado_lista["totalPages"]
+    if isinstance(resultado_lista.get("totalPaginas"), int):
+        return pagina_atual + 1 < resultado_lista["totalPaginas"]
+    if isinstance(resultado_lista.get("totalElements"), int):
+        return (pagina_atual + 1) * tamanho < resultado_lista["totalElements"]
+    if isinstance(resultado_lista.get("totalElementos"), int):
+        return (pagina_atual + 1) * tamanho < resultado_lista["totalElementos"]
+
+    return len(itens) == tamanho
+
+
+def autenticar_admin(base_url: str, email: str, senha: str):
+    session = requests.Session()
+    session.headers.update(
+        {
+            "accept": "application/json, text/plain, */*",
+            "accept-language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            "referer": f"{base_url}/login",
+        }
+    )
+
+    payload = request_json(
+        session,
+        "POST",
+        f"{base_url}/api/auth/login",
+        json={"email": email, "senha": senha},
+        headers={"content-type": "application/json"},
+    )
+    token = encontrar_token(payload)
+    if not token:
+        raise RuntimeError("Login realizado, mas não encontrei o token na resposta da API.")
+
+    session.headers.update({"authorization": f"Bearer {token}"})
+    return session
+
+
+def baixar_inscricoes_api(base_url: str, email: str, senha: str, tamanho: int = 100, max_paginas: int = 100):
+    session = autenticar_admin(base_url.rstrip("/"), email, senha)
+    base_url = base_url.rstrip("/")
+    paginas = []
+    resumo = []
+    detalhes = []
+    pagina = 0
+
+    for _ in range(max_paginas):
+        lista = request_json(
+            session,
+            "GET",
+            f"{base_url}/api/admin/inscricoes",
+            params={"pagina": pagina, "tamanho": tamanho, "ordenar": "mais_recente"},
+            headers={"referer": f"{base_url}/admin/dashboard"},
+        )
+        itens = extrair_itens_lista(lista)
+        paginas.append(lista)
+        resumo.extend(itens)
+
+        for item in itens:
+            inscricao_id = extrair_id_inscricao(item)
+            if not inscricao_id:
+                continue
+            detalhe = request_json(
+                session,
+                "GET",
+                f"{base_url}/api/admin/inscricoes/{inscricao_id}",
+                headers={"referer": f"{base_url}/admin/inscricoes/{inscricao_id}"},
+            )
+            detalhes.append(detalhe)
+
+        if not tem_proxima_pagina(lista, pagina, tamanho, itens):
+            break
+        pagina += 1
+
+    return {
+        "geradoEm": datetime.now(timezone.utc).isoformat(),
+        "totalResumo": len(resumo),
+        "totalDetalhes": len(detalhes),
+        "resumo": resumo,
+        "detalhes": detalhes,
+        "paginasOriginais": paginas,
+    }
+
+
+def salvar_json(caminho: Path, data: dict):
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    with open(caminho, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def valor_secreto(nome: str, padrao: str = ""):
+    try:
+        return st.secrets.get(nome, os.getenv(nome, padrao))
+    except Exception:
+        return os.getenv(nome, padrao)
 
 
 def valor_aninhado(obj: dict, caminho: str, padrao=None):
@@ -247,6 +416,31 @@ def main():
         caminho = st.text_input("Arquivo JSON", str(DATA_PADRAO))
         if st.button("Recarregar dados"):
             carregar_json.clear()
+
+        st.divider()
+        st.header("Atualizar pela API")
+        st.caption("Faz login no endpoint `/api/auth/login`, baixa a lista e busca o detalhe de cada inscrição.")
+        with st.form("form_atualizar_api"):
+            base_url = st.text_input("Base URL", valor_secreto("OIAA_BASE_URL", BASE_URL_PADRAO))
+            email = st.text_input("E-mail", valor_secreto("OIAA_EMAIL"))
+            senha = st.text_input("Senha", valor_secreto("OIAA_SENHA"), type="password")
+            tamanho = st.number_input("Tamanho da página", min_value=1, max_value=500, value=100, step=10)
+            max_paginas = st.number_input("Máx. páginas", min_value=1, max_value=500, value=100, step=10)
+            atualizar_api = st.form_submit_button("Login e atualizar JSON")
+
+        if atualizar_api:
+            if not email or not senha:
+                st.error("Informe e-mail e senha para atualizar pela API.")
+            else:
+                try:
+                    with st.spinner("Autenticando e baixando inscrições..."):
+                        dados_api = baixar_inscricoes_api(base_url, email, senha, int(tamanho), int(max_paginas))
+                        salvar_json(Path(caminho), dados_api)
+                        carregar_json.clear()
+                    st.success(f"Dados atualizados: {dados_api['totalDetalhes']} inscrições detalhadas.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Falha ao atualizar pela API: {exc}")
 
     caminho_path = Path(caminho)
     if not caminho_path.exists():
