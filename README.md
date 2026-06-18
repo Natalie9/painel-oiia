@@ -20,52 +20,119 @@ O acesso ao painel é bloqueado até que o usuário faça login com credenciais 
 ```text
 .
 ├── painel_inscricoes.py
-├── requirements-streamlit.txt
+├── requirements.txt
 ├── dados/
 │   └── .gitkeep
+├── run.sh
 └── README.md
 ```
 
 O arquivo `dados/inscricoes-detalhadas.json` não é versionado porque pode conter dados pessoais.
 
-## Como rodar
+## Como rodar (priorizando uv)
 
-1. Copie ou gere o arquivo de dados em:
+### 1) Instale o uv
+
+Windows (winget):
+
+```powershell
+winget install astral-sh.uv
+```
+
+macOS e Linux:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Verifique a instalação:
+
+```bash
+uv --version
+```
+
+### 2) Entre na pasta do projeto
+
+```bash
+cd painel-inscricoes-oiaa
+```
+
+### 3) Crie o ambiente virtual
+
+```bash
+uv venv .venv
+```
+
+### 4) Ative o ambiente virtual
+
+PowerShell (Windows):
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+CMD (Windows):
+
+```bat
+.venv\Scripts\activate.bat
+```
+
+Bash (Linux/macOS/Git Bash):
+
+```bash
+source .venv/bin/activate
+```
+
+### 5) Instale os pacotes
+
+```bash
+uv pip install -r requirements.txt
+```
+
+Isso instala as dependências do painel, incluindo `streamlit`, `pandas`, `plotly` e `requests`.
+
+### 6) Garanta o arquivo de dados
+
+Copie ou gere o arquivo em:
 
 ```text
 dados/inscricoes-detalhadas.json
 ```
 
-2. Instale as dependências:
+### 7) Rode o painel
+
+Com o ambiente ativado (recomendado):
 
 ```bash
-pip install -r requirements-streamlit.txt
+python -m streamlit run painel_inscricoes.py
 ```
 
-3. Inicie o painel:
+Sem ativar ambiente (isolado via uv):
 
 ```bash
-streamlit run painel_inscricoes.py
+uv run --with streamlit --with pandas --with plotly --with requests python -m streamlit run painel_inscricoes.py
 ```
 
-Alternativa usando `uv`:
-
-```bash
-uv run --with streamlit --with pandas --with plotly --with requests streamlit run painel_inscricoes.py
-```
-
-Também há atalhos locais:
-
-PowerShell:
-
-```powershell
-./run.ps1
-```
-
-Bash/Git Bash:
+Atalho local (Bash/Git Bash):
 
 ```bash
 bash run.sh
+```
+
+### Solução de problemas rápida
+
+- Erro `ModuleNotFoundError: No module named 'plotly'`: execute `uv pip install -r requirements.txt` com a env ativada.
+- Erro `uv trampoline failed to canonicalize script path` no Windows: use `python -m streamlit run painel_inscricoes.py` com a env ativada.
+
+### Fallback sem uv (pip tradicional)
+
+Se você preferir não usar `uv`, faça:
+
+```bash
+python -m venv .venv
+# ative a env
+pip install -r requirements.txt
+python -m streamlit run painel_inscricoes.py
 ```
 
 ## Login obrigatório e atualização pela API
