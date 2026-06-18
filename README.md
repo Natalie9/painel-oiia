@@ -15,6 +15,16 @@ O acesso ao painel é bloqueado até que o usuário faça login com credenciais 
 - Tabelas com exportação em CSV.
 - Atualização direta pela API: login, paginação da lista e busca dos detalhes.
 
+## Tecnologias
+
+- **Streamlit**: Framework web interativo para dashboards em Python.
+- **Pandas**: Manipulação e análise de dados estruturados (DataFrames).
+- **Plotly**: Visualizações gráficas interativas (charts, mapas, scatter plots).
+- **Requests**: Comunicação HTTP com a API de autenticação e dados de inscrições.
+- **Python 3.8+**: Linguagem base do projeto.
+
+**Recomendamos rodar este projeto com `uv`**, um gerenciador de pacotes Python rápido e confiável. Veja "Como rodar com uv" para instruções completas.
+
 ## Estrutura
 
 ```text
@@ -29,7 +39,7 @@ O acesso ao painel é bloqueado até que o usuário faça login com credenciais 
 
 O arquivo `dados/inscricoes-detalhadas.json` não é versionado porque pode conter dados pessoais.
 
-## Como rodar (priorizando uv)
+## Como rodar com uv (recomendado)
 
 ### 1) Instale o uv
 
@@ -135,9 +145,25 @@ pip install -r requirements.txt
 python -m streamlit run painel_inscricoes.py
 ```
 
-## Login obrigatório e atualização pela API
+## Mantendo os dados atualizados
 
-Ao abrir o app, o painel solicita login antes de exibir qualquer dado. O fluxo implementado é:
+### Por que atualizar?
+
+O arquivo `dados/inscricoes-detalhadas.json` é consultado localmente para renderizar o dashboard. Se você não atualizar os dados, verá informações desatualizadas (inscrições antigas, status que não mudaram, etc.).
+
+### Como atualizar?
+
+1. **Abra o painel** normalmente (veja seção "Como rodar com uv").
+2. **Faça login** com suas credenciais administrativas.
+3. No menu lateral esquerdo, procure pela seção **"Atualizar pela API"**.
+4. **Clique no botão "Atualizar Inscrições"** (ou similar).
+5. O painel fará login novamente, baixará todas as inscrições da API e salvará em `dados/inscricoes-detalhadas.json`.
+6. **Atualize a página do navegador** (F5 ou Cmd+R) após a atualização terminar.
+7. Os gráficos, tabelas e KPIs agora mostrarão dados recentes.
+
+### Fluxo de autenticação e atualização técnico
+
+O painel implementa o seguinte fluxo:
 
 1. `POST /api/auth/login` com `email` e `senha`.
 2. Extração do token retornado pelo login.
@@ -146,7 +172,11 @@ Ao abrir o app, o painel solicita login antes de exibir qualquer dado. O fluxo i
 5. `GET /api/admin/inscricoes/{id}` para detalhar cada inscrição.
 6. Gravação do resultado em `dados/inscricoes-detalhadas.json`.
 
-Para evitar digitar credenciais toda vez, você pode usar variáveis de ambiente:
+### Dicas para melhorar a experiência
+
+**Evitar digitar credenciais toda vez:**
+
+Configure as variáveis de ambiente:
 
 ```bash
 OIAA_EMAIL="seu-email"
@@ -154,7 +184,7 @@ OIAA_SENHA="sua-senha"
 OIAA_BASE_URL="https://olimpiadadeia.ceia.digital"
 ```
 
-Ou configurar os mesmos nomes em `.streamlit/secrets.toml`:
+Ou use `.streamlit/secrets.toml` (local):
 
 ```toml
 OIAA_EMAIL = "seu-email"
@@ -162,7 +192,7 @@ OIAA_SENHA = "sua-senha"
 OIAA_BASE_URL = "https://olimpiadadeia.ceia.digital"
 ```
 
-Não faça commit de `.streamlit/secrets.toml`.
+**⚠️ Importante:** Não faça commit de `.streamlit/secrets.toml` — adicione ao `.gitignore` se necessário.
 
 ## Fonte dos dados
 
