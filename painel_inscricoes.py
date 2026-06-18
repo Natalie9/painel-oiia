@@ -552,16 +552,82 @@ def main():
             grafico_contagem(df_equipes_f, "categoria_rotulo", "Equipes por categoria")
 
         if not df_equipes_f.empty:
-            serie = (
+            # Definir datas limites
+            data_inicio = df_equipes_f["criado_em"].min().date()
+            data_meta = date(2026, 7, 31)
+            hoje = date.today()
+            data_fim_eixo = max(hoje, data_meta)
+
+            # Criar esqueleto de datas até o fim da meta
+            datas_periodo = pd.date_range(start=data_inicio, end=data_fim_eixo).date
+            df_datas = pd.DataFrame({"data_criacao": datas_periodo})
+
+            # Preparar dados diários
+            serie_total = (
                 df_equipes_f.dropna(subset=["data_criacao"])
                 .groupby("data_criacao")
                 .size()
                 .reset_index(name="inscricoes")
-                .sort_values("data_criacao")
             )
-            fig = px.line(serie, x="data_criacao", y="inscricoes", markers=True, title="Inscrições criadas por dia")
-            fig.update_traces(mode="lines+markers+text", text=serie["inscricoes"], textposition="top center")
-            st.plotly_chart(fig, use_container_width=True)
+            
+            # Calcular enviadas por dia
+            serie_enviadas = (
+                df_equipes_f[df_equipes_f["status"] == "ENVIADA"]
+                .dropna(subset=["data_criacao"])
+                .groupby("data_criacao")
+                .size()
+                .reset_index(name="enviadas_dia")
+            )
+            
+            # Merge com o esqueleto de datas
+            serie = df_datas.merge(serie_total, on="data_criacao", how="left")
+            serie = serie.merge(serie_enviadas, on="data_criacao", how="left").fillna(0)
+            serie = serie.sort_values("data_criacao")
+            
+            # Acumulados (apenas até hoje para não mostrar linhas retas no futuro)
+            mask_ate_hoje = serie["data_criacao"] <= hoje
+            serie.loc[mask_ate_hoje, "acumulado"] = serie.loc[mask_ate_hoje, "inscricoes"].cumsum()
+            serie.loc[mask_ate_hoje, "enviadas_acumulado"] = serie.loc[mask_ate_hoje, "enviadas_dia"].cumsum()
+
+            # Cálculo da meta (valor esperado) para todo o período
+            meta_valor = 600
+            def calcular_meta(data_atual):
+                dias_totais = (data_meta - data_inicio).days
+                if dias_totais <= 0: return meta_valor
+                dias_passados = (data_atual - data_inicio).days
+                valor = (dias_passados / dias_totais) * meta_valor
+                return min(valor, meta_valor) if data_atual <= data_meta else meta_valor
+
+            serie["meta_esperada"] = serie["data_criacao"].apply(calcular_meta)
+
+            # Gráfico 1: Inscrições por dia (mostra apenas o que tem dados ou até hoje)
+            serie_grafico_dia = serie[serie["data_criacao"] <= hoje].copy()
+            fig_dia = px.bar(serie_grafico_dia, x="data_criacao", y=["inscricoes", "enviadas_dia"], 
+                             title="Novas Inscrições por Dia",
+                             barmode="group",
+                             labels={"value": "Quantidade", "data_criacao": "Data", "variable": "Tipo"},
+                             color_discrete_map={"inscricoes": "#636EFA", "enviadas_dia": "#00CC96"})
+            st.plotly_chart(fig_dia, use_container_width=True)
+
+            # Gráfico 2: Acumulado vs Meta (Eixo X fixo até a meta)
+            fig_acum = px.line(serie, x="data_criacao", y=["acumulado", "enviadas_acumulado", "meta_esperada"], 
+                               title="Evolução Acumulada vs Meta (600 até 31/07)",
+                               labels={"value": "Total de Equipes", "data_criacao": "Data", "variable": "Métrica"},
+                               color_discrete_map={
+                                   "acumulado": "#636EFA", 
+                                   "enviadas_acumulado": "#00CC96", 
+                                   "meta_esperada": "#AB63FA"
+                               })
+            
+            # Ajuste de estilo: Meta tracejada, as outras sólidas e mais grossas
+            fig_acum.update_traces(line=dict(dash='dash', width=2), selector=dict(name='meta_esperada'))
+            fig_acum.update_traces(line=dict(width=4), selector=dict(name='enviadas_acumulado'))
+            fig_acum.update_traces(line=dict(width=4), selector=dict(name='acumulado'))
+            
+            # Forçar o range do eixo X até a data da meta
+            fig_acum.update_xaxes(range=[data_inicio, data_meta])
+            
+            st.plotly_chart(fig_acum, use_container_width=True)
 
     with abas[1]:
         col1, col2 = st.columns(2)
